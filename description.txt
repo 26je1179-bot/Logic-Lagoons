@@ -1,0 +1,144 @@
+================================================================================
+SIH NIKHIL - 3D ULPIN Generation & Vertical Property Mapping System
+Project Description & Code Architecture Guide
+================================================================================
+
+This document provides a deep, comprehensive explanation of the project's logic, 
+how the code works, what happens during user interaction, and the directory structure.
+
+--------------------------------------------------------------------------------
+1. PROJECT OVERVIEW & LOGIC
+--------------------------------------------------------------------------------
+This project is a prototype for the Department of Land Resources (DoLR), aimed at 
+solving the challenge of Vertical Property Mapping. While traditional cadastral 
+maps (2D) assign a Unique Land Parcel Identification Number (ULPIN) to a plot of 
+land, they fail to represent multi-story buildings where different floors or flats 
+are owned by different people.
+
+This system takes a 2D base ULPIN and extends it into the 3rd dimension 
+(Vertical Property Units) using 3D ULPINs. It visualizes these structures via a 
+split-pane web interface:
+- Left pane: A 2D geographic map (Leaflet) displaying the land parcels.
+- Right pane: A 3D model viewer (Three.js) displaying the vertical property 
+  (the building) on that parcel.
+
+When a user clicks on the 2D map, the system finds the nearest registered parcel 
+within a 100m radius. Before viewing the vertical property, the user is presented 
+with a security challenge to enter the password corresponding to that 2D ULPIN. 
+Only upon successful authentication is the 3D asset loaded and rendered. The user 
+can then interact with individual floors in the 3D viewer to see specific ownership, 
+area, and 3D ULPIN data.
+
+--------------------------------------------------------------------------------
+2. HOW THE CODE WORKS (FLOW OF EXECUTION)
+--------------------------------------------------------------------------------
+
+A. Initialization
+- When `index.html` loads, it loads the application styles (`style.css`), libraries 
+  (Leaflet, Three.js), and the main entry point `js/search.js` as an ES module.
+- `search.js` initializes the `ParcelMap` (from `map.js`) and the `ParcelViewer` 
+  (from `viewer.js`).
+- It fetches the initial list of registered parcels from the backend API 
+  (`/api/parcels`) via `api.js` and passes them to the map to draw the orange pins.
+
+B. Location Search / Map Interaction
+- When a user clicks anywhere on the Leaflet map, `map.js` captures the 
+  Latitude/Longitude coordinates.
+- It draws a red click marker and a 100m radius circle.
+- It calls `fetchParcelByLocation(lat, lng)` from `api.js`.
+- The backend (`app.py`) receives the request at `/api/parcels/by-location`. It 
+  queries the SQLite database (`ulpin.db`), computes the Haversine distance 
+  between the clicked point and all registered parcels, and returns the nearest 
+  parcel if it falls within 100 meters.
+- The returned data includes the base 2D ULPIN, address, and the filename of its 
+  3D model (e.g., `parcel_1.glb`).
+
+C. Security & Authentication
+- Once the parcel is resolved, the system prompts the user with a password modal.
+- `search.js` intercepts the loading process and awaits user input. 
+- The password is submitted via `api.js` to `/api/verify-password`, where the 
+  backend verifies it against the `users` table in `ulpin.db`.
+
+D. 3D Model Rendering
+- Upon successful password verification, `search.js` commands the `ParcelViewer` 
+  to load the 3D model using `viewer.loadModel(model_url)`.
+- `viewer.js` uses Three.js's `GLTFLoader` to fetch and parse the `.glb` file.
+- Crucially, the GLB models have custom metadata embedded inside them (stored in 
+  `gltf.extras` or node `userData`). `viewer.js` traverses the 3D meshes, 
+  extracting properties like `floor_number`, `unit_type`, `area_sqm`, `owner_name`, 
+  and the derived `ulpin_3d`.
+- It renders the building in the 3D canvas on the right pane.
+
+E. 3D Interaction (Hover & Click)
+- `viewer.js` uses a `Raycaster` to track the mouse over the 3D canvas.
+- As the user hovers over floors, the raycaster detects intersections with the 
+  floor meshes, highlighting them subtly and showing a floating tooltip.
+- When clicked, the mesh is selected (highlighted in bright orange). `search.js` 
+  listens to this selection event and updates the bottom HTML metadata panel, 
+  displaying the specific Floor Number, 3D ULPIN, Owner, and Area.
+- Toolbar actions: `viewer.js` provides methods to Explode floors (displacing 
+  them vertically along the Y-axis for easy viewing) and toggle Wireframe mode.
+
+--------------------------------------------------------------------------------
+3. DIRECTORY STRUCTURE & FILE EXPLANATIONS
+--------------------------------------------------------------------------------
+
+SIH NIKHIL/
+│
+├── frontend/                     # Contains all client-side code (UI & Visuals)
+│   ├── index.html                # Main layout structure (header, map pane, 3D pane, metadata footer).
+│   ├── style.css                 # Application styling, grid layouts, themes, and UI elements.
+│   │
+│   ├── js/                       # Core frontend logic modules
+│   │   ├── api.js                # Encapsulates all `fetch()` calls to the Python backend.
+│   │   ├── map.js                # Manages Leaflet map initialization, plotting markers, and handling map clicks.
+│   │   ├── viewer.js             # Manages Three.js scene, camera, raycasting, GLTF loading, and 3D interactions.
+│   │   └── search.js             # The main controller/glue. Connects the UI forms, map clicks, and 3D viewer.
+│   │
+│   └── libs/                     # Third-party libraries used in the frontend
+│       ├── leaflet/              # Leaflet JS & CSS for the 2D interactive map.
+│       ├── loaders/              # Three.js GLTFLoader to parse .glb/.gltf files.
+│       ├── controls/             # Three.js OrbitControls for panning, zooming, and rotating the 3D camera.
+│       ├── utils/                # Three.js utility scripts (BufferGeometryUtils).
+│       └── three.module.js       # The core Three.js rendering engine.
+│
+├── backend/                      # Contains the Python Flask server and data layer
+│   ├── app.py                    # Main Flask application. Defines REST endpoints, Haversine distance logic, and serves frontend static files.
+│   ├── build_models.py           # Utility script likely used to procedurally generate .glb 3D models with embedded metadata using a python 3D library or blender integration.
+│   ├── seed.py                   # Script to initialize and populate `ulpin.db` with dummy test data (owners, ULPINs, coords).
+│   ├── requirements.txt          # Python dependencies (Flask, Flask-Cors, etc.).
+│   ├── ulpin.db                  # SQLite database holding cadastral info, vertical properties, and a users table for passwords.
+│   └── models/                   # Directory serving the 3D asset files.
+│       ├── parcel_1.glb          # 3D model for parcel 1 (e.g., Dhanbad).
+│       ├── parcel_2.glb          # 3D model for parcel 2 (e.g., Kolkata).
+│       └── parcel_3.glb          # 3D model for parcel 3 (e.g., Bengaluru).
+│
+├── run.bat                       # Batch script to easily start the backend Python server and open the app in Windows.
+├── test_e2e.py                   # Automated end-to-end tests for validating the backend APIs and frontend serving.
+├── test_interactions.py          # Tests designed to validate the 3D model metadata and database interaction integrity.
+└── README.md                     # Documentation for setting up and running the project.
+
+--------------------------------------------------------------------------------
+CONCLUSION
+--------------------------------------------------------------------------------
+The system acts as a highly integrated bridge between 2D Geographic Information 
+Systems (GIS) and 3D Building Information Modeling (BIM). The Python backend acts 
+as the source of truth (simulating a land registry), calculating geospatial 
+proximities, while the Vanilla JS frontend orchestrates two distinct rendering 
+engines (Leaflet & Three.js) to deliver a seamless Cadastral-to-Vertical property 
+exploration experience.
+
+--------------------------------------------------------------------------------
+4. HOW TO RUN THE WEBSITE
+--------------------------------------------------------------------------------
+1. Prerequisites: Ensure you have Python installed on your system.
+2. Initialize Database (Optional if already seeded): Run `python backend/seed.py` 
+   to generate the `ulpin.db` SQLite database, which will insert the parcels, 
+   floors, and the user passwords (Kolkata: 1234, Dhanbad: 5678, Bengaluru: 1000).
+3. Start the Server: Double-click the `run.bat` file in the project root. This 
+   batch script will automatically start the Python Flask backend server on port 5000.
+4. Open the App: If your browser does not open automatically, open your web 
+   browser and navigate to `http://localhost:5000`.
+5. Interact: Search using a 14-digit ULPIN, click on the example Quick Test 
+   Parcels, or click on a registered pin on the map. Enter the corresponding 
+   password in the security modal to unlock the 3D vertical property models!

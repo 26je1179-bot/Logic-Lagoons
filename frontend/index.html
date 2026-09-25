@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>
+      3D ULPIN Generation & Vertical Property Mapping System (SIH26011)
+    </title>
+
+    <!-- Using Jet Brains Mono font in the website using it from google -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- CSS and Javascript leaflets for better interactivity with maps -->
+    <link rel="stylesheet" href="libs/leaflet/leaflet.css" />
+    <script src="libs/leaflet/leaflet.js"></script>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./libs/three.module.js",
+          "three/addons/": "./libs/"
+        }
+      }
+    </script>
+
+    <!-- Webpage of the Website -->
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="header-branding">
+        <div class="header-logo-icon">🏛️</div>
+        <div class="header-titles">
+          <div class="header-title-row">
+            <h1>3D ULPIN & Vertical Property Mapping System</h1>
+            <span class="badge-sih">SIH26011 Prototype</span>
+          </div>
+          <p class="header-subtitle">
+            Department of Land Resources (DoLR) / DILRMP &bull; High-Precision
+            3D Cadastral & Vertical Demarcation Engine
+          </p>
+        </div>
+      </div>
+
+      <div class="header-search-section">
+        <form id="search-form" class="search-form">
+          <div class="search-input-wrapper">
+            <span class="search-icon">🔍</span>
+            <input
+              type="text"
+              id="ulpin-input"
+              class="search-input"
+              placeholder="Search by 14-digit ULPIN (e.g. JH091234567801)..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <button type="submit" id="search-btn" class="btn btn-primary">
+            <span>Load 3D Parcel</span>
+          </button>
+        </form>
+
+        <div class="sample-chips-row">
+          <span class="sample-label">Quick Test Parcels:</span>
+          <button type="button" class="sample-chip" data-ulpin="JH091234567801">
+            📍 Dhanbad (4 Floors)
+          </button>
+          <button type="button" class="sample-chip" data-ulpin="WB198765432102">
+            📍 Kolkata (3 Floors)
+          </button>
+          <button type="button" class="sample-chip" data-ulpin="KA561122334403">
+            📍 Bengaluru (9 Floors)
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="simulation-banner">
+      <div class="sim-banner-content">
+        <span class="sim-icon">ℹ️</span>
+        <span class="sim-text">
+          <strong>Simulation Mode:</strong> 2D ULPIN resolution matches map
+          click coordinates to nearest registered cadastral parcel within a
+          <strong>100m Haversine radius</strong>. In production, this directly
+          hooks into the official SVAMITVA / DILRMP GIS registry.
+        </span>
+      </div>
+    </div>
+
+    <main class="main-layout">
+      <!-- Defining and creating the map in the left column -->
+      <section class="panel panel-map">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="icon">🗺️</span>
+            <h2>Geographic Land Parcel Map</h2>
+          </div>
+          <div class="map-legend">
+            <span class="legend-dot registered"></span> Registered Cadastral
+            Pins <span class="legend-dot click"></span> Click (100m Radius)
+          </div>
+        </div>
+        <div class="panel-instruction">
+          Click anywhere on the map to trigger 100m proximity vertical parcel
+          lookup. Or click a sample pin.
+        </div>
+        <div
+          style="
+            position: relative;
+            width: 100%;
+            height: 100%;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+          "
+        >
+          <div id="map-container" class="map-view"></div>
+        </div>
+      </section>
+
+      <!-- Creating the vertical property viewer in the right side -->
+      <section class="panel panel-viewer">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="icon">🏢</span>
+            <h2>3D Building & Vertical Unit Viewer</h2>
+          </div>
+          <div class="viewer-toolbar">
+            <button
+              type="button"
+              id="btn-explode"
+              class="btn btn-tool"
+              title="Separate vertical property units along elevation"
+            >
+              <span class="icon">💥</span> Explode Floors
+            </button>
+            <button
+              type="button"
+              id="btn-wireframe"
+              class="btn btn-tool"
+              title="Toggle structural wireframe"
+            >
+              <span class="icon">🕸️</span> Wireframe
+            </button>
+            <button
+              type="button"
+              id="btn-reset-view"
+              class="btn btn-tool"
+              title="Reset camera framing and clear highlight"
+            >
+              <span class="icon">🔄</span> Reset View
+            </button>
+          </div>
+        </div>
+        <div class="panel-instruction viewer-instruction">
+          <strong>Interactive 3D Cadastre:</strong> Drag to rotate &bull; Scroll
+          to zoom &bull; Click any floor mesh to inspect per-floor embedded
+          metadata.
+        </div>
+
+        <div id="viewer-canvas-container" class="canvas-box">
+          <div id="floor-tooltip" class="floating-tooltip"></div>
+        </div>
+
+        <div class="viewer-footer-bar">
+          <span id="viewer-status" class="viewer-status-text">Ready</span>
+          <span class="viewer-hint"
+            >Custom Properties embedded inside GLTF/GLB extras</span
+          >
+        </div>
+      </section>
+    </main>
+
+    <!-- Creating the bottom panel(the viewer ends) -->
+    <section class="metadata-section">
+      <div class="meta-card parcel-info-card">
+        <div class="card-header">
+          <h3>📋 Parcel-Level Land Record</h3>
+          <span class="record-badge">Cadastral Record</span>
+        </div>
+        <div class="card-body">
+          <div class="meta-grid">
+            <div class="meta-item">
+              <label>2D Base ULPIN</label>
+              <div id="meta-ulpin" class="meta-value font-mono highlight">
+                --
+              </div>
+            </div>
+            <div class="meta-item">
+              <label>Derived 3D Cadastral ID</label>
+              <div id="meta-3d-ulpin" class="meta-value font-mono">--</div>
+            </div>
+            <div class="meta-item full-width">
+              <label>Physical Address</label>
+              <div id="meta-address" class="meta-value">--</div>
+            </div>
+            <div class="meta-item">
+              <label>Jurisdiction / Coordinates</label>
+              <div id="meta-location" class="meta-value">--</div>
+            </div>
+            <div class="meta-item">
+              <label>Total Building Height</label>
+              <div id="meta-height" class="meta-value">--</div>
+            </div>
+            <div class="meta-item">
+              <label>Total Vertical Units</label>
+              <div id="meta-floors" class="meta-value">--</div>
+            </div>
+            <div class="meta-item">
+              <label>3D GLB Asset</label>
+              <div id="meta-model-url" class="meta-value font-mono font-xs">
+                --
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="meta-card selected-floor-card" id="selected-floor-card">
+        <div class="card-header">
+          <h3>🎯 Selected Vertical Property Unit</h3>
+          <span class="record-badge active-badge">Interactive Raycast</span>
+        </div>
+        <div class="card-body">
+          <div class="meta-grid">
+            <div class="meta-item">
+              <label>Vertical Unit Level</label>
+              <div id="sel-floor-num" class="meta-value font-bold text-accent">
+                Floor 0
+              </div>
+            </div>
+            <div class="meta-item">
+              <label>Vertical 3D ULPIN</label>
+              <div id="sel-3d-ulpin" class="meta-value font-mono highlight">
+                --
+              </div>
+            </div>
+            <div class="meta-item">
+              <label>Unit Usage Type</label>
+              <div class="meta-value">
+                <span id="sel-unit-type" class="unit-badge">RESIDENTIAL</span>
+              </div>
+            </div>
+            <div class="meta-item">
+              <label>Unit Floor Height</label>
+              <div id="sel-height" class="meta-value">--</div>
+            </div>
+            <div class="meta-item">
+              <label>Carpet / Built-up Area</label>
+              <div id="sel-area" class="meta-value">--</div>
+            </div>
+            <div class="meta-item full-width">
+              <label>Registered Property Owner / Title</label>
+              <div id="sel-owner" class="meta-value font-semibold">--</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="meta-card floor-stack-card">
+        <div class="card-header">
+          <h3>📶 Vertical Property Stack (Demarcation)</h3>
+          <span class="card-subtitle">Click floor row to isolate in 3D</span>
+        </div>
+        <div class="card-body">
+          <div id="floor-list" class="floor-list-stack"></div>
+        </div>
+      </div>
+    </section>
+
+
+
+    <div id="status-toast" class="toast"></div>
+
+    <!-- Entry Script -->
+    <script type="module" src="js/search.js"></script>
+  </body>
+</html>
